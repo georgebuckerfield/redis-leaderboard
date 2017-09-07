@@ -1,6 +1,12 @@
 version: '2'
 services:
+  go:
+    build: .
+    links:
+      - redis
+    environment:
+      - "REDISHOST=redis"
+      - "MAXUSERS=10000"
+      - "TOTALREQUESTS=30000"
   redis:
     image: redis
-    ports:
-      - "6379:6379"

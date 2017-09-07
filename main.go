@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"math/rand"
+	"os"
 	"strconv"
 	"time"
 
@@ -10,10 +11,6 @@ import (
 )
 
 const (
-	// The total number of requests to send to Redis
-	requests = 5000
-	// The number of distinct users to simulate
-	users = 10000
 	// The number of records to retrieve from the leaderboard
 	topn = 5000
 )
@@ -25,6 +22,9 @@ func main() {
 	stop := make(chan bool)
 
 	start := time.Now()
+
+	requests, _ := strconv.Atoi(os.Getenv("TOTALREQUESTS"))
+	fmt.Printf("Preparing to send %v requests\n", requests)
 
 	go sendData(requests, done)
 	go rcvData(stop)
@@ -81,13 +81,16 @@ func sendData(requests int, done chan bool) {
 	client := newRedisClient()
 	// Channel for individual goroutines to signal they're finished on
 	tasks := make(chan string)
+	users, _ := strconv.Atoi(os.Getenv("MAXUSERS"))
+	fmt.Printf("Simulating max %v users\n", users)
 	// Send requests
 	for i := 0; i < requests; i++ {
 		// Introduce some random latency to make things interesting
 		latency := time.Duration(rand.Intn(5)) * time.Millisecond
 		totalLatency = totalLatency + latency
+		user := "user-" + strconv.Itoa(rand.Intn(users))
 		time.Sleep(latency)
-		go addScore(client, tasks)
+		go addScore(client, user, tasks)
 	}
 	ctr := 0
 	for range tasks {
@@ -102,9 +105,8 @@ func sendData(requests int, done chan bool) {
 }
 
 // Use this if we want to reset the score for the member each time
-func setScore(client *redis.Client, done chan string) error {
+func setScore(client *redis.Client, user string, done chan string) error {
 	score := float64(rand.Intn(1000))
-	user := "user-" + strconv.Itoa(rand.Intn(users))
 
 	value := redis.Z{
 		Score:  score,
@@ -127,9 +129,8 @@ func setScore(client *redis.Client, done chan string) error {
 }
 
 // Use this if we want the score to be increased each time
-func addScore(client *redis.Client, done chan string) error {
+func addScore(client *redis.Client, user string, done chan string) error {
 	score := float64(rand.Intn(1000))
-	user := "user-" + strconv.Itoa(rand.Intn(users))
 
 	_, err := client.ZIncrBy("leaderboard", score, user).Result()
 	if err != nil {
@@ -158,8 +159,13 @@ func getCount(client *redis.Client) (int64, error) {
 
 // newRedisClient returns a redis client
 func newRedisClient() *redis.Client {
+	host := os.Getenv("REDISHOST")
+	if host == "" {
+		host = "localhost"
+	}
+	address := fmt.Sprintf(host + ":6379")
 	client := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
+		Addr:     address,
 		Password: "", // no password set
 		DB:       0,  // use default DB
 	})
